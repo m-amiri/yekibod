@@ -48,4 +48,66 @@ async function generateImage(description) {
   return response.data.data[0].url;
 }
 
-module.exports = { generateStory, generateImage };
+// خلاصه‌سازی داستان
+async function summarizeStory(story) {
+  try {
+    const response = await axios.post(
+      'https://api.openai.com/v1/chat/completions',
+      {
+        model: 'gpt-3.5-turbo',
+        messages: [
+          { role: 'system', content: 'شما یک دستیار هوشمند هستید که داستان‌ها را خلاصه می‌کنید.' },
+          { role: 'user', content: `یک خلاصه کوتاه از این داستان ایجاد کن: \n\n${story}` }
+        ],
+        max_tokens: 50,
+      },
+      {
+        headers: { 
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+      }
+    );
+
+    return response.data.choices[0].message.content.trim();
+  } catch (error) {
+    console.error('Error in summarizeStory:', error.message);
+    if (error.response) {
+      console.error('OpenAI API Error Response:', error.response.data);
+    }
+    throw error;
+  }
+}
+
+// تولید ایموجی‌های مرتبط
+async function generateEmojis(summary) {
+  try {
+    const response = await axios.post(
+      'https://api.openai.com/v1/chat/completions',
+      {
+        model: 'gpt-3.5-turbo',
+        messages: [
+          { role: 'system', content: 'شما یک دستیار هوشمند هستید که ایموجی‌های مناسب با متن را پیشنهاد می‌دهید.' },
+          { role: 'user', content: `به این متن نگاه کن و ۵ ایموجی مرتبط با محتوای آن پیشنهاد بده:\n"${summary}"\nفقط ایموجی‌ها را برگردان، بدون متن اضافی.` }
+        ],
+        max_tokens: 20,
+      },
+      {
+        headers: { 
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+      }
+    );
+
+    return response.data.choices[0].message.content.trim();
+  } catch (error) {
+    console.error('Error in generateEmojis:', error.message);
+    if (error.response) {
+      console.error('OpenAI API Error Response:', error.response.data);
+    }
+    throw error;
+  }
+}
+
+module.exports = { generateStory, generateImage, summarizeStory, generateEmojis };

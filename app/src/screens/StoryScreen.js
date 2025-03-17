@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
-import { View, Text, Image, ScrollView, ActivityIndicator, Switch, Dimensions, Animated } from 'react-native';
-import { generateStory } from '../../services/api';
+import { View, Text, ScrollView, ActivityIndicator, Switch, Dimensions, Animated, Easing } from 'react-native';
+import { generateStory, getStoryEnhancement, pingServer } from '../../services/api';
 import { getUserId } from '../../services/userServices';
 import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -11,16 +11,16 @@ export default function StoryScreen({ route, navigation }) {
   const { name, age, gender, interests } = route.params;
 
   const [story, setStory] = useState([]);
-  const [imageUrl, setImageUrl] = useState(null);
+  const [emojis, setEmojis] = useState(null);
   const [loading, setLoading] = useState(true);
   const [generateImage, setGenerateImage] = useState(false);
   const [error, setError] = useState(null);
   const [page, setPage] = useState(0);
+  const [retryCount, setRetryCount] = useState(0);
 
-  // مقدار اولیه انیمیشن
-  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current; // انیمیشن فید
+  const bounceAnim = useRef(new Animated.Value(0)).current; // انیمیشن بونس (جهش)
 
-  // ایجاد داستان جدید
   const createNewStory = async () => {
     try {
       setLoading(true);
@@ -28,6 +28,17 @@ export default function StoryScreen({ route, navigation }) {
       
       const userId = await getUserId();
       if (!userId) throw new Error('دریافت شناسه کاربر با مشکل مواجه شد');
+
+      // تست ارتباط با سرور
+      if (retryCount > 0) {
+        try {
+          await pingServer();
+          console.log("بک‌اند در دسترس است");
+        } catch (pingError) {
+          console.error("خطا در ارتباط با بک‌اند:", pingError);
+          throw new Error("خطا در ارتباط با سرور. لطفا اتصال اینترنت خود را بررسی کنید.");
+        }
+      }
 
       const response = await generateStory({
         userId,
@@ -39,32 +50,66 @@ export default function StoryScreen({ route, navigation }) {
       });
 
       if (response?.data) {
-        // تنظیم متن داستان
         if (response.data.story) {
           const storyText = response.data.story.split('\n').filter(text => text.trim() !== '');
           setStory(storyText);
-        }
 
-        // تنظیم تصویر
-        if (response.data.imageUrl) {
-          setImageUrl(response.data.imageUrl);
+          // درخواست ایموجی‌های مرتبط
+          try {
+            const enhancement = await getStoryEnhancement(response.data.story);
+            if (enhancement?.data?.emojis) {
+              setEmojis(enhancement.data.emojis);
+              
+              // فعال کردن انیمیشن وقتی ایموجی‌ها دریافت شدند
+              Animated.sequence([
+                Animated.timing(fadeAnim, {
+                  toValue: 1,
+                  duration: 400,
+                  easing: Easing.out(Easing.exp),
+                  useNativeDriver: true
+                }),
+                Animated.spring(bounceAnim, {
+                  toValue: 1,
+                  friction: 3,
+                  tension: 40,
+                  useNativeDriver: true
+                })
+              ]).start();
+            }
+          } catch (emojiError) {
+            console.error("Error getting story enhancement:", emojiError);
+            // خطای ایموجی نباید کل فرآیند را متوقف کند
+          }
         }
       }
     } catch (error) {
       console.error("Error generating new story:", error);
-      setError("خطا در ایجاد داستان جدید");
+      if (error.message.includes("Network Error") || error.message.includes("ارتباط با سرور")) {
+        setError("خطا در ارتباط با سرور. لطفا اتصال اینترنت خود را بررسی کنید.");
+      } else {
+        setError("خطا در ایجاد داستان جدید");
+      }
+      
       setStory(["متأسفانه در ایجاد داستان مشکلی پیش آمده است."]);
+      
+      // ریست کردن انیمیشن‌ها
+      fadeAnim.setValue(1);
+      bounceAnim.setValue(1);
     } finally {
       setLoading(false);
     }
   };
 
-  // ایجاد داستان در لود اولیه و تغییر وضعیت تصویر
+  // تلاش مجدد
+  const retry = () => {
+    setRetryCount(c => c + 1);
+    createNewStory();
+  };
+
   useEffect(() => {
     createNewStory();
   }, [generateImage]);
 
-  // تابع تغییر صفحه همراه با انیمیشن
   const changePage = (newPage) => {
     Animated.timing(fadeAnim, {
       toValue: 0,
@@ -80,7 +125,6 @@ export default function StoryScreen({ route, navigation }) {
     });
   };
 
-  // کنترل Swipe برای تغییر صفحه
   const onSwipe = (event) => {
     const { translationX, velocityX, state } = event.nativeEvent;
     const SWIPE_THRESHOLD = 65;
@@ -112,29 +156,50 @@ export default function StoryScreen({ route, navigation }) {
               ) : (
                 <>
                   {error && (
-                    <Text style={{ color: 'red', marginBottom: 10, textAlign: 'center' }}>{error}</Text>
+                    <View style={{ marginBottom: 20 }}>
+                      <Text style={{ color: 'red', marginBottom: 10, textAlign: 'center' }}>{error}</Text>
+                      <View style={{ alignItems: 'center' }}>
+                        <Text 
+                          onPress={retry}
+                          style={{ 
+                            color: '#f39c12', 
+                            fontWeight: 'bold', 
+                            padding: 10, 
+                            borderWidth: 1, 
+                            borderColor: '#f39c12', 
+                            borderRadius: 5 
+                          }}
+                        >
+                          تلاش مجدد
+                        </Text>
+                      </View>
+                    </View>
                   )}
                   
-                  {imageUrl && (
-                    <Image 
-                      source={{ uri: imageUrl }} 
-                      style={{ width: width * 0.8, height: height * 0.4, marginBottom: 20, alignSelf: 'center' }}
-                      onError={() => setImageUrl(null)}
-                    />
+                  {/* نمایش ایموجی‌های مرتبط با انیمیشن */}
+                  {emojis && (
+                    <Animated.Text 
+                      style={{
+                        fontSize: 40, 
+                        textAlign: 'center', 
+                        marginBottom: 10, 
+                        opacity: fadeAnim, 
+                        transform: [{ scale: bounceAnim }]
+                      }}
+                    >
+                      {emojis}
+                    </Animated.Text>
                   )}
 
-                  {/* افکت انیمیشنی روی متن */}
                   <Animated.View style={{ opacity: fadeAnim }}>
                     <Text style={{ fontSize: 18, textAlign: "center", paddingHorizontal: 20, lineHeight: 30 }}>
                       {story[page]}
                     </Text>
                   </Animated.View>
 
-                  {story.length > 1 && (
-                    <Text style={{ marginTop: 20, fontSize: 14, color: "gray", textAlign: "center" }}>
-                      {page + 1} / {story.length}
-                    </Text>
-                  )}
+                  <Text style={{ marginTop: 20, fontSize: 14, color: "gray", textAlign: "center" }}>
+                    {page + 1} / {story.length}
+                  </Text>
                 </>
               )}
             </ScrollView>
