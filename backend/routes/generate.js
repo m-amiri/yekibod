@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { generateStory } = require('../services/openaiService');
-const { generateImage } = require('../services/openaiService');
+const { generateStory } = require('../services/aiService');
+const { generateImage } = require('../services/aiService');
 const { saveStory } = require('../services/databaseService');
 
 router.post('/', async (req, res) => {

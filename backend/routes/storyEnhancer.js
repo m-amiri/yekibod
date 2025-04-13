@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { summarizeStory, generateEmojis } = require('../services/openaiService');
+const { summarizeStory, generateEmojis } = require('../services/aiService');
 
 router.post('/enhance', async (req, res) => {
   const { story } = req.body;
